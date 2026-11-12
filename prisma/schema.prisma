@@ -1,0 +1,152 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+// All money is stored in paise (integer). Dates are stored as UTC midnight of the calendar day.
+
+model Setting {
+  key   String @id
+  value String
+}
+
+model Worker {
+  id       Int       @id @default(autoincrement())
+  name     String
+  active   Boolean   @default(true)
+  payments Payment[]
+}
+
+model Party {
+  id             Int       @id @default(autoincrement())
+  name           String
+  nameLocal      String?
+  phone          String?
+  address        String?
+  gstin          String?
+  openingBalance Int       @default(0) // amount owed when moved from the paper khatha
+  createdAt      DateTime  @default(now())
+  bills          Bill[]
+  payments       Payment[]
+}
+
+model Item {
+  id         Int             @id @default(autoincrement())
+  name       String
+  unit       String          @default("pcs")
+  hsn        String?
+  gstRate    Float           @default(0)
+  salePrice  Int             @default(0)
+  stock      Float           @default(0)
+  lowStockAt Float           @default(0)
+  billLines  BillLine[]
+  purchases  PurchaseLine[]
+  movements  StockMovement[]
+}
+
+model StockMovement {
+  id     Int      @id @default(autoincrement())
+  itemId Int
+  item   Item     @relation(fields: [itemId], references: [id], onDelete: Cascade)
+  date   DateTime
+  qty    Float // + in, - out
+  kind   String // OPENING | SALE | PURCHASE | ADJUST
+  ref    String? // "bill:12" / "purchase:4"
+}
+
+model Bill {
+  id           Int          @id @default(autoincrement())
+  number       Int          @unique
+  date         DateTime
+  partyId      Int?
+  party        Party?       @relation(fields: [partyId], references: [id])
+  customerName String? // walk-in cash customer
+  taxable      Int
+  tax          Int
+  roundOff     Int          @default(0)
+  total        Int
+  note         String?
+  createdAt    DateTime     @default(now())
+  lines        BillLine[]
+  allocations  Allocation[]
+}
+
+model BillLine {
+  id      Int     @id @default(autoincrement())
+  billId  Int
+  bill    Bill    @relation(fields: [billId], references: [id], onDelete: Cascade)
+  itemId  Int?
+  item    Item?   @relation(fields: [itemId], references: [id], onDelete: SetNull)
+  name    String
+  hsn     String?
+  unit    String
+  qty     Float
+  rate    Int
+  gstRate Float   @default(0)
+  taxable Int
+  tax     Int
+}
+
+// Money received from a customer: either at the time of the bill (withBill) or a later collection.
+model Payment {
+  id          Int          @id @default(autoincrement())
+  date        DateTime
+  partyId     Int?
+  party       Party?       @relation(fields: [partyId], references: [id])
+  amount      Int
+  mode        String       @default("CASH") // CASH | UPI | BANK | CHEQUE
+  withBill    Boolean      @default(false)
+  workerId    Int?
+  worker      Worker?      @relation(fields: [workerId], references: [id])
+  note        String?
+  createdAt   DateTime     @default(now())
+  allocations Allocation[]
+}
+
+// Which bill a payment (or part of it) was adjusted against.
+model Allocation {
+  id        Int     @id @default(autoincrement())
+  paymentId Int
+  payment   Payment @relation(fields: [paymentId], references: [id], onDelete: Cascade)
+  billId    Int
+  bill      Bill    @relation(fields: [billId], references: [id], onDelete: Cascade)
+  amount    Int
+}
+
+// Any other money in/out: expenses, purchase payments, salary, other income.
+model CashEntry {
+  id          Int       @id @default(autoincrement())
+  date        DateTime
+  direction   String // IN | OUT
+  category    String
+  description String
+  amount      Int
+  mode        String    @default("CASH")
+  purchaseId  Int?      @unique
+  purchase    Purchase? @relation(fields: [purchaseId], references: [id], onDelete: Cascade)
+}
+
+model Purchase {
+  id        Int            @id @default(autoincrement())
+  date      DateTime
+  supplier  String
+  invoiceNo String?
+  total     Int
+  paid      Int
+  lines     PurchaseLine[]
+  cashEntry CashEntry?
+}
+
+model PurchaseLine {
+  id         Int      @id @default(autoincrement())
+  purchaseId Int
+  purchase   Purchase @relation(fields: [purchaseId], references: [id], onDelete: Cascade)
+  itemId     Int
+  item       Item     @relation(fields: [itemId], references: [id], onDelete: Cascade)
+  qty        Float
+  rate       Int
+}
