@@ -2,9 +2,12 @@ generator client {
   provider = "prisma-client-js"
 }
 
+// Neon Postgres. DATABASE_URL is the pooled connection (used by the app),
+// DATABASE_URL_UNPOOLED the direct one (used only for migrations).
 datasource db {
-  provider = "sqlite"
-  url      = env("DATABASE_URL")
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DATABASE_URL_UNPOOLED")
 }
 
 // All money is stored in paise (integer). Dates are stored as UTC midnight of the calendar day.

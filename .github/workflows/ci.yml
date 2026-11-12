@@ -8,8 +8,18 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: shop
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd pg_isready --health-interval 5s --health-timeout 5s --health-retries 10
     env:
-      DATABASE_URL: "file:./ci.db"
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/shop
+      DATABASE_URL_UNPOOLED: postgresql://postgres:postgres@localhost:5432/shop
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -17,8 +27,10 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
-      - name: Create database from schema
-        run: npx prisma db push --skip-generate
+      - name: Apply database migrations
+        run: npx prisma migrate deploy
+      - name: Check migrations match the schema
+        run: npx prisma migrate diff --from-url "$DATABASE_URL" --to-schema-datamodel prisma/schema.prisma --exit-code
       - name: Type check
         run: npx tsc --noEmit
       - name: Build

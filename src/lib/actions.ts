@@ -15,6 +15,9 @@ const opt = (fd: FormData, k: string) => str(fd, k) || null;
 const mode = (v: unknown) => (MODES as readonly string[]).includes(String(v)) ? String(v) : "CASH";
 const refresh = () => revalidatePath("/", "layout");
 
+// The database is across the network, so allow transactions more time than Prisma's 5s default.
+const run = <R>(fn: (tx: Tx) => Promise<R>) => db.$transaction(fn, { maxWait: 10_000, timeout: 20_000 });
+
 /**
  * Adjusts a party's payments against their bills, oldest first.
  * The old (opening) balance is cleared first, then bills in date order.
@@ -91,7 +94,7 @@ export async function saveParty(fd: FormData) {
     openingBalance: toPaise(fd.get("openingBalance")),
   };
   if (id) {
-    await db.$transaction(async (tx) => {
+    await run(async (tx) => {
       await tx.party.update({ where: { id }, data });
       await settle(tx, id);
     });
@@ -119,7 +122,7 @@ export async function saveItem(fd: FormData) {
     lowStockAt: num(fd.get("lowStockAt")),
   };
   const today = toDate(validDate(null));
-  await db.$transaction(async (tx) => {
+  await run(async (tx) => {
     if (id) {
       const old = await tx.item.findUnique({ where: { id } });
       if (!old) return;
@@ -184,7 +187,7 @@ export async function createBill(input: BillInput): Promise<{ error: string } | 
     return { error: "For a credit or part-paid bill, choose the party so it goes into their khatha." };
 
   const date = toDate(validDate(input.date));
-  const id = await db.$transaction(async (tx) => {
+  const id = await run(async (tx) => {
     const last = await tx.bill.aggregate({ _max: { number: true } });
     const bill = await tx.bill.create({
       data: {
@@ -226,7 +229,7 @@ export async function createBill(input: BillInput): Promise<{ error: string } | 
 }
 
 export async function deleteBill(id: number) {
-  await db.$transaction(async (tx) => {
+  await run(async (tx) => {
     const bill = await tx.bill.findUnique({ where: { id }, include: { lines: true } });
     if (!bill) return;
     for (const l of bill.lines)
@@ -249,7 +252,7 @@ export async function recordPayment(fd: FormData) {
   const amount = toPaise(fd.get("amount"));
   if (!partyId || amount <= 0) return;
   const billId = num(fd.get("billId"));
-  await db.$transaction(async (tx) => {
+  await run(async (tx) => {
     const pay = await tx.payment.create({
       data: {
         date: toDate(validDate(fd.get("date"))),
@@ -275,7 +278,7 @@ export async function recordPayment(fd: FormData) {
 }
 
 export async function deletePayment(id: number) {
-  await db.$transaction(async (tx) => {
+  await run(async (tx) => {
     const p = await tx.payment.findUnique({ where: { id } });
     if (!p) return;
     await tx.payment.delete({ where: { id } });
@@ -328,7 +331,7 @@ export async function createPurchase(input: PurchaseInput): Promise<{ error: str
   const total = lines.reduce((a, l) => a + Math.round(l.qty * l.rate), 0);
   const paid = Math.max(toPaise(input.paid), 0);
   const date = toDate(validDate(input.date));
-  await db.$transaction(async (tx) => {
+  await run(async (tx) => {
     const p = await tx.purchase.create({
       data: { date, supplier, invoiceNo: input.invoiceNo.trim() || null, total, paid, lines: { create: lines } },
     });
@@ -356,7 +359,7 @@ export async function createPurchase(input: PurchaseInput): Promise<{ error: str
 }
 
 export async function deletePurchase(id: number) {
-  await db.$transaction(async (tx) => {
+  await run(async (tx) => {
     const p = await tx.purchase.findUnique({ where: { id }, include: { lines: true } });
     if (!p) return;
     for (const l of p.lines)
@@ -373,7 +376,12 @@ export async function login(fd: FormData) {
   const pw = process.env.APP_PASSWORD;
   if (pw && str(fd, "password") === pw) {
     const token = createHash("sha256").update("shop:" + pw).digest("hex");
-    (await cookies()).set("shop_auth", token, { httpOnly: true, sameSite: "lax", maxAge: 60 * 60 * 24 * 90 });
+    (await cookies()).set("shop_auth", token, {
+      httpOnly: true,
+      sameSite: "lax",
+      secure: process.env.NODE_ENV === "production",
+      maxAge: 60 * 60 * 24 * 90,
+    });
     redirect("/");
   }
   redirect("/login?wrong=1");
