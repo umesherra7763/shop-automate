@@ -33,7 +33,7 @@ The app runs on [Vercel](https://vercel.com) with a [Neon](https://neon.tech) Po
 
 ### One-time setup
 
-1. **Vercel**: sign in with GitHub, then *Add New → Project → Import* `shop-khatha`. Don't deploy yet.
+1. **Vercel**: sign in with GitHub, then *Add New → Project → Import* `shop-automate`. Don't deploy yet.
 2. **Database**: in the Vercel project, open *Storage → Create Database → Neon*. Choose a Mumbai (`ap-south-1`) or Singapore region and connect it to the project. This adds `DATABASE_URL` and `DATABASE_URL_UNPOOLED` automatically.
 3. **Password**: in *Settings → Environment Variables*, add `APP_PASSWORD`. The hosted app refuses to open without it.
 4. **Deploy**: open *Deployments* and redeploy (or push any commit).
